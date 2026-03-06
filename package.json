@@ -43,6 +43,7 @@
 		"@types/os-utils": "^0.0.4",
 		"@types/react": "^19.2.7",
 		"@types/react-dom": "^19.2.3",
+		"@types/sql.js": "^1.4.9",
 		"@vitejs/plugin-react": "^5.1.2",
 		"cross-env": "^10.1.0",
 		"electron": "^39.2.7",
