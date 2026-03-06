@@ -3,7 +3,7 @@ import { execSync } from "child_process";
 import { ipcMainHandle, isDev, DEV_PORT } from "./util.js";
 import { getPreloadPath, getUIPath, getIconPath } from "./pathResolver.js";
 import { getStaticData, pollResources, stopPolling } from "./test.js";
-import { handleClientEvent, sessions, cleanupAllSessions } from "./ipc-handlers.js";
+import { handleClientEvent, sessions, cleanupAllSessions, initializeSessionsStore } from "./ipc-handlers.js";
 import { generateSessionTitle } from "./libs/util.js";
 import { saveApiConfig } from "./libs/config-store.js";
 import { getCurrentApiConfig } from "./libs/claude-settings.js";
@@ -42,7 +42,10 @@ function handleSignal(): void {
 }
 
 // Initialize everything when app is ready
-app.on("ready", () => {
+app.on("ready", async () => {
+    // Initialize sessions store before any IPC handlers use it
+    await initializeSessionsStore();
+    
     Menu.setApplicationMenu(null);
     // Setup event handlers
     app.on("before-quit", cleanup);
@@ -97,6 +100,7 @@ app.on("ready", () => {
 
     // Handle recent cwds request
     ipcMainHandle("get-recent-cwds", (_: any, limit?: number) => {
+        if (!sessions) return [];
         const boundedLimit = limit ? Math.min(Math.max(limit, 1), 20) : 8;
         return sessions.listRecentCwds(boundedLimit);
     });

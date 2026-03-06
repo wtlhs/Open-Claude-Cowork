@@ -5,13 +5,16 @@ import { SessionStore } from "./libs/session-store.js";
 import { app } from "electron";
 import { join } from "path";
 
-let sessions: SessionStore;
+let sessions: SessionStore | null = null;
+let sessionsReady = false;
 const runnerHandles = new Map<string, RunnerHandle>();
 
-function initializeSessions() {
+async function initializeSessions(): Promise<SessionStore> {
   if (!sessions) {
     const DB_PATH = join(app.getPath("userData"), "sessions.db");
     sessions = new SessionStore(DB_PATH);
+    await sessions.ready();
+    sessionsReady = true;
   }
   return sessions;
 }
@@ -25,7 +28,7 @@ function broadcast(event: ServerEvent) {
 }
 
 function hasLiveSession(sessionId: string): boolean {
-  if (!sessions) return false;
+  if (!sessions || !sessionsReady) return false;
   return Boolean(sessions.getSession(sessionId));
 }
 
@@ -42,13 +45,13 @@ function emit(event: ServerEvent) {
     return;
   }
 
-  if (event.type === "session.status") {
+  if (sessions && event.type === "session.status") {
     sessions.updateSession(event.payload.sessionId, { status: event.payload.status });
   }
-  if (event.type === "stream.message") {
+  if (sessions && event.type === "stream.message") {
     sessions.recordMessage(event.payload.sessionId, event.payload.message);
   }
-  if (event.type === "stream.user_prompt") {
+  if (sessions && event.type === "stream.user_prompt") {
     sessions.recordMessage(event.payload.sessionId, {
       type: "user_prompt",
       prompt: event.payload.prompt
@@ -57,20 +60,27 @@ function emit(event: ServerEvent) {
   broadcast(event);
 }
 
+function getSessions(): SessionStore {
+  if (!sessions) {
+    throw new Error("SessionStore not initialized. Call initializeSessionsStore() first.");
+  }
+  return sessions;
+}
+
 export function handleClientEvent(event: ClientEvent) {
-  // Initialize sessions on first event
-  const sessions = initializeSessions();
+  // Sessions should already be initialized by main.ts
+  const store = getSessions();
 
   if (event.type === "session.list") {
     emit({
       type: "session.list",
-      payload: { sessions: sessions.listSessions() }
+      payload: { sessions: store.listSessions() }
     });
     return;
   }
 
   if (event.type === "session.history") {
-    const history = sessions.getSessionHistory(event.payload.sessionId);
+    const history = store.getSessionHistory(event.payload.sessionId);
     if (!history) {
       // Session may have been deleted (or deleted concurrently). Treat as a sync event rather than an error toast.
       emit({ type: "session.deleted", payload: { sessionId: event.payload.sessionId } });
@@ -88,14 +98,14 @@ export function handleClientEvent(event: ClientEvent) {
   }
 
   if (event.type === "session.start") {
-    const session = sessions.createSession({
+    const session = store.createSession({
       cwd: event.payload.cwd,
       title: event.payload.title,
       allowedTools: event.payload.allowedTools,
       prompt: event.payload.prompt
     });
 
-    sessions.updateSession(session.id, {
+    store.updateSession(session.id, {
       status: "running",
       lastPrompt: event.payload.prompt
     });
@@ -115,15 +125,15 @@ export function handleClientEvent(event: ClientEvent) {
       resumeSessionId: session.claudeSessionId,
       onEvent: emit,
       onSessionUpdate: (updates) => {
-        sessions.updateSession(session.id, updates);
+        store.updateSession(session.id, updates);
       }
     })
       .then((handle) => {
         runnerHandles.set(session.id, handle);
-        sessions.setAbortController(session.id, undefined);
+        store.setAbortController(session.id, undefined);
       })
       .catch((error) => {
-        sessions.updateSession(session.id, { status: "error" });
+        store.updateSession(session.id, { status: "error" });
         emit({
           type: "session.status",
           payload: {
@@ -140,7 +150,7 @@ export function handleClientEvent(event: ClientEvent) {
   }
 
   if (event.type === "session.continue") {
-    const session = sessions.getSession(event.payload.sessionId);
+    const session = store.getSession(event.payload.sessionId);
     if (!session) {
       emit({ type: "session.deleted", payload: { sessionId: event.payload.sessionId } });
       emit({
@@ -158,7 +168,7 @@ export function handleClientEvent(event: ClientEvent) {
       return;
     }
 
-    sessions.updateSession(session.id, { status: "running", lastPrompt: event.payload.prompt });
+    store.updateSession(session.id, { status: "running", lastPrompt: event.payload.prompt });
     emit({
       type: "session.status",
       payload: { sessionId: session.id, status: "running", title: session.title, cwd: session.cwd }
@@ -175,14 +185,14 @@ export function handleClientEvent(event: ClientEvent) {
       resumeSessionId: session.claudeSessionId,
       onEvent: emit,
       onSessionUpdate: (updates) => {
-        sessions.updateSession(session.id, updates);
+        store.updateSession(session.id, updates);
       }
     })
       .then((handle) => {
         runnerHandles.set(session.id, handle);
       })
       .catch((error) => {
-        sessions.updateSession(session.id, { status: "error" });
+        store.updateSession(session.id, { status: "error" });
         emit({
           type: "session.status",
           payload: {
@@ -199,7 +209,7 @@ export function handleClientEvent(event: ClientEvent) {
   }
 
   if (event.type === "session.stop") {
-    const session = sessions.getSession(event.payload.sessionId);
+    const session = store.getSession(event.payload.sessionId);
     if (!session) return;
 
     const handle = runnerHandles.get(session.id);
@@ -208,7 +218,7 @@ export function handleClientEvent(event: ClientEvent) {
       runnerHandles.delete(session.id);
     }
 
-    sessions.updateSession(session.id, { status: "idle" });
+    store.updateSession(session.id, { status: "idle" });
     emit({
       type: "session.status",
       payload: { sessionId: session.id, status: "idle", title: session.title, cwd: session.cwd }
@@ -226,7 +236,7 @@ export function handleClientEvent(event: ClientEvent) {
 
     // Always try to delete and emit deleted event
     // Don't emit error if session doesn't exist - it may have already been deleted
-    sessions.deleteSession(sessionId);
+    store.deleteSession(sessionId);
     emit({
       type: "session.deleted",
       payload: { sessionId }
@@ -235,7 +245,7 @@ export function handleClientEvent(event: ClientEvent) {
   }
 
   if (event.type === "permission.response") {
-    const session = sessions.getSession(event.payload.sessionId);
+    const session = store.getSession(event.payload.sessionId);
     if (!session) return;
 
     const pending = session.pendingPermissions.get(event.payload.toolUseId);
@@ -244,6 +254,10 @@ export function handleClientEvent(event: ClientEvent) {
     }
     return;
   }
+}
+
+export async function initializeSessionsStore(): Promise<void> {
+  await initializeSessions();
 }
 
 export function cleanupAllSessions(): void {

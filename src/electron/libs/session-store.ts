@@ -1,4 +1,6 @@
-import Database from "better-sqlite3";
+import initSqlJs, { Database as SqlJsDatabase } from "sql.js";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { dirname } from "path";
 import type { SessionStatus, StreamMessage } from "../types.js";
 
 export type PendingPermission = {
@@ -37,17 +39,114 @@ export type SessionHistory = {
   messages: StreamMessage[];
 };
 
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+
+// Singleton SQL.js instance
+let SQL: Awaited<ReturnType<typeof initSqlJs>> | null = null;
+
+async function initSqlJsOnce(): Promise<Awaited<ReturnType<typeof initSqlJs>>> {
+  if (!SQL) {
+    SQL = await initSqlJs({
+      locateFile: (file: string) => {
+        // In Electron, we need to locate the wasm file
+        // It should be in node_modules/sql.js/dist/
+        try {
+          return require.resolve(`sql.js/dist/${file}`);
+        } catch {
+          // Fallback for different module resolution
+          return `${require.resolve('sql.js').replace(/\/[^/]*$/, '')}/${file}`;
+        }
+      }
+    });
+  }
+  return SQL;
+}
+
 export class SessionStore {
   private sessions = new Map<string, Session>();
-  private db: Database.Database;
+  private db: SqlJsDatabase | null = null;
+  private dbPath: string;
+  private initialized = false;
+  private initPromise: Promise<void> | null = null;
 
   constructor(dbPath: string) {
-    this.db = new Database(dbPath);
-    this.initialize();
+    this.dbPath = dbPath;
+    // Start initialization asynchronously
+    this.initPromise = this.initialize();
+  }
+
+  private async initialize(): Promise<void> {
+    if (this.initialized) return;
+    
+    const SQL = await initSqlJsOnce();
+    
+    // Load existing database or create new one
+    if (existsSync(this.dbPath)) {
+      const fileBuffer = readFileSync(this.dbPath);
+      this.db = new SQL.Database(fileBuffer);
+    } else {
+      this.db = new SQL.Database();
+    }
+    
+    // Create tables
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        title TEXT,
+        claude_session_id TEXT,
+        status TEXT NOT NULL,
+        cwd TEXT,
+        allowed_tools TEXT,
+        last_prompt TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        data TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES sessions(id)
+      )
+    `);
+    this.db.run(`CREATE INDEX IF NOT EXISTS messages_session_id ON messages(session_id)`);
+    
+    this.saveDb();
     this.loadSessions();
+    this.initialized = true;
+  }
+
+  private saveDb(): void {
+    if (!this.db) return;
+    const data = this.db.export();
+    const buffer = Buffer.from(data);
+    
+    // Ensure directory exists
+    const dir = dirname(this.dbPath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    
+    writeFileSync(this.dbPath, buffer);
+  }
+
+  private ensureReady(): void {
+    if (!this.initialized || !this.db) {
+      throw new Error("SessionStore not initialized. Call await sessionStore.ready() first.");
+    }
+  }
+
+  async ready(): Promise<void> {
+    if (this.initPromise) {
+      await this.initPromise;
+    }
   }
 
   createSession(options: { cwd?: string; allowedTools?: string; prompt?: string; title: string }): Session {
+    this.ensureReady();
     const id = crypto.randomUUID();
     const now = Date.now();
     const session: Session = {
@@ -60,13 +159,11 @@ export class SessionStore {
       pendingPermissions: new Map()
     };
     this.sessions.set(id, session);
-    this.db
-      .prepare(
-        `insert into sessions
-          (id, title, claude_session_id, status, cwd, allowed_tools, last_prompt, created_at, updated_at)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
+    
+    this.db!.run(
+      `INSERT INTO sessions (id, title, claude_session_id, status, cwd, allowed_tools, last_prompt, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
         id,
         session.title,
         session.claudeSessionId ?? null,
@@ -76,7 +173,10 @@ export class SessionStore {
         session.lastPrompt ?? null,
         now,
         now
-      );
+      ]
+    );
+    this.saveDb();
+    
     return session;
   }
 
@@ -85,13 +185,12 @@ export class SessionStore {
   }
 
   listSessions(): StoredSession[] {
-    const rows = this.db
-      .prepare(
-        `select id, title, claude_session_id, status, cwd, allowed_tools, last_prompt, created_at, updated_at
-         from sessions
-         order by updated_at desc`
-      )
-      .all() as Array<Record<string, unknown>>;
+    this.ensureReady();
+    const rows = this.executeQuery(
+      `SELECT id, title, claude_session_id, status, cwd, allowed_tools, last_prompt, created_at, updated_at
+       FROM sessions
+       ORDER BY updated_at DESC`
+    );
     return rows.map((row) => ({
       id: String(row.id),
       title: String(row.title),
@@ -106,35 +205,37 @@ export class SessionStore {
   }
 
   listRecentCwds(limit = 8): string[] {
-    const rows = this.db
-      .prepare(
-        `select cwd, max(updated_at) as latest
-         from sessions
-         where cwd is not null and trim(cwd) != ''
-         group by cwd
-         order by latest desc
-         limit ?`
-      )
-      .all(limit) as Array<Record<string, unknown>>;
+    this.ensureReady();
+    const rows = this.executeQuery(
+      `SELECT cwd, MAX(updated_at) as latest
+       FROM sessions
+       WHERE cwd IS NOT NULL AND TRIM(cwd) != ''
+       GROUP BY cwd
+       ORDER BY latest DESC
+       LIMIT ?`,
+      [limit]
+    );
     return rows.map((row) => String(row.cwd));
   }
 
   getSessionHistory(id: string): SessionHistory | null {
-    const sessionRow = this.db
-      .prepare(
-        `select id, title, claude_session_id, status, cwd, allowed_tools, last_prompt, created_at, updated_at
-         from sessions
-         where id = ?`
-      )
-      .get(id) as Record<string, unknown> | undefined;
-    if (!sessionRow) return null;
-
-    const messages = (this.db
-      .prepare(
-        `select data from messages where session_id = ? order by created_at asc`
-      )
-      .all(id) as Array<Record<string, unknown>>)
-      .map((row) => JSON.parse(String(row.data)) as StreamMessage);
+    this.ensureReady();
+    const sessionRows = this.executeQuery(
+      `SELECT id, title, claude_session_id, status, cwd, allowed_tools, last_prompt, created_at, updated_at
+       FROM sessions
+       WHERE id = ?`,
+      [id]
+    );
+    
+    if (sessionRows.length === 0) return null;
+    
+    const sessionRow = sessionRows[0];
+    
+    const messageRows = this.executeQuery(
+      `SELECT data FROM messages WHERE session_id = ? ORDER BY created_at ASC`,
+      [id]
+    );
+    const messages = messageRows.map((row) => JSON.parse(String(row.data)) as StreamMessage);
 
     return {
       session: {
@@ -153,6 +254,7 @@ export class SessionStore {
   }
 
   updateSession(id: string, updates: Partial<Session>): Session | undefined {
+    this.ensureReady();
     const session = this.sessions.get(id);
     if (!session) return undefined;
     Object.assign(session, updates);
@@ -167,23 +269,25 @@ export class SessionStore {
   }
 
   recordMessage(sessionId: string, message: StreamMessage): void {
+    this.ensureReady();
     const id = ('uuid' in message && message.uuid) ? String(message.uuid) : crypto.randomUUID();
-    this.db
-      .prepare(
-        `insert or ignore into messages (id, session_id, data, created_at) values (?, ?, ?, ?)`
-      )
-      .run(id, sessionId, JSON.stringify(message), Date.now());
+    this.db!.run(
+      `INSERT OR IGNORE INTO messages (id, session_id, data, created_at) VALUES (?, ?, ?, ?)`,
+      [id, sessionId, JSON.stringify(message), Date.now()]
+    );
+    this.saveDb();
   }
 
   deleteSession(id: string): boolean {
+    this.ensureReady();
     const existing = this.sessions.get(id);
     if (existing) {
       this.sessions.delete(id);
     }
-    this.db.prepare(`delete from messages where session_id = ?`).run(id);
-    const result = this.db.prepare(`delete from sessions where id = ?`).run(id);
-    const removedFromDb = result.changes > 0;
-    return removedFromDb || Boolean(existing);
+    this.db!.run(`DELETE FROM messages WHERE session_id = ?`, [id]);
+    this.db!.run(`DELETE FROM sessions WHERE id = ?`, [id]);
+    this.saveDb();
+    return Boolean(existing);
   }
 
   private persistSession(id: string, updates: Partial<Session>): void {
@@ -209,46 +313,17 @@ export class SessionStore {
     fields.push("updated_at = ?");
     values.push(Date.now());
     values.push(id);
-    this.db
-      .prepare(`update sessions set ${fields.join(", ")} where id = ?`)
-      .run(...values);
-  }
-
-  private initialize(): void {
-    this.db.exec(`pragma journal_mode = WAL;`);
-    this.db.exec(
-      `create table if not exists sessions (
-        id text primary key,
-        title text,
-        claude_session_id text,
-        status text not null,
-        cwd text,
-        allowed_tools text,
-        last_prompt text,
-        created_at integer not null,
-        updated_at integer not null
-      )`
-    );
-    this.db.exec(
-      `create table if not exists messages (
-        id text primary key,
-        session_id text not null,
-        data text not null,
-        created_at integer not null,
-        foreign key (session_id) references sessions(id)
-      )`
-    );
-    this.db.exec(`create index if not exists messages_session_id on messages(session_id)`);
+    
+    this.db!.run(`UPDATE sessions SET ${fields.join(", ")} WHERE id = ?`, values);
+    this.saveDb();
   }
 
   private loadSessions(): void {
-    const rows = this.db
-      .prepare(
-        `select id, title, claude_session_id, status, cwd, allowed_tools, last_prompt
-         from sessions`
-      )
-      .all();
-    for (const row of rows as Array<Record<string, unknown>>) {
+    const rows = this.executeQuery(
+      `SELECT id, title, claude_session_id, status, cwd, allowed_tools, last_prompt
+       FROM sessions`
+    );
+    for (const row of rows) {
       const session: Session = {
         id: String(row.id),
         title: String(row.title),
@@ -263,7 +338,29 @@ export class SessionStore {
     }
   }
 
+  private executeQuery(sql: string, params: (string | number | null)[] = []): Record<string, unknown>[] {
+    if (!this.db) return [];
+    
+    const stmt = this.db.prepare(sql);
+    if (params.length > 0) {
+      stmt.bind(params);
+    }
+    
+    const results: Record<string, unknown>[] = [];
+    while (stmt.step()) {
+      const row = stmt.getAsObject();
+      results.push(row);
+    }
+    stmt.free();
+    
+    return results;
+  }
+
   close(): void {
-    this.db.close();
+    if (this.db) {
+      this.saveDb();
+      this.db.close();
+      this.db = null;
+    }
   }
 }
