@@ -2,6 +2,8 @@
 	"name": "agent-cowork",
 	"private": true,
 	"version": "0.1.0",
+	"description": "Claude Agent Cowork GUI Application",
+	"author": "Agent Cowork Team",
 	"type": "module",
 	"main": "dist-electron/main.js",
 	"scripts": {
@@ -58,5 +60,42 @@
 	},
 	"patchedDependencies": {
 		"@anthropic-ai/claude-agent-sdk@0.2.6": "patches/@anthropic-ai%2Fclaude-agent-sdk@0.2.6.patch"
+	},
+	"build": {
+		"appId": "com.agent-cowork.app",
+		"productName": "Agent Cowork",
+		"directories": {
+			"output": "dist"
+		},
+		"files": [
+			"dist-electron/**/*",
+			"dist-react/**/*",
+			"node_modules/**/*",
+			"package.json"
+		],
+		"extraResources": [
+			{
+				"from": "node_modules/@anthropic-ai/claude-agent-sdk/vendor",
+				"to": "vendor",
+				"filter": ["**/*"]
+			}
+		],
+		"asarUnpack": [
+			"node_modules/better-sqlite3/**/*"
+		],
+		"win": {
+			"target": ["portable"],
+			"icon": "assets/icon.ico"
+		},
+		"linux": {
+			"target": ["AppImage", "deb"],
+			"category": "Utility"
+		},
+		"mac": {
+			"target": ["dmg", "zip"],
+			"category": "public.app-category.productivity"
+		},
+		"electronLanguages": ["zh-CN", "en-US"],
+		"compression": "maximum"
 	}
 }
