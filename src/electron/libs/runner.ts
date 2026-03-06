@@ -1,4 +1,4 @@
-import { query, type SDKMessage, type PermissionResult } from "@anthropic-ai/claude-agent-sdk";
+﻿import { query, type SDKMessage, type PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import type { ServerEvent } from "../types.js";
 import type { Session } from "./session-store.js";
 
@@ -71,6 +71,8 @@ export async function runClaude(options: RunnerOptions): Promise<RunnerHandle> {
           permissionMode: "bypassPermissions",
           includePartialMessages: true,
           allowDangerouslySkipPermissions: true,
+          // 加载用户配置目录，支持 skills/commands
+          settingSources: ["user"],
           canUseTool: async (toolName, input, { signal }) => {
             // For AskUserQuestion, we need to wait for user response
             if (toolName === "AskUserQuestion") {

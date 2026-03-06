@@ -1,5 +1,5 @@
-import { create } from 'zustand';
-import type { ServerEvent, SessionStatus, StreamMessage } from "../types";
+﻿import { create } from 'zustand';
+import type { ServerEvent, SessionStatus, StreamMessage, Skill, Command } from '../types';
 
 export type PermissionRequest = {
   toolUseId: string;
@@ -32,6 +32,8 @@ interface AppState {
   showSettingsModal: boolean;
   historyRequested: Set<string>;
   apiConfigChecked: boolean;
+  skills: Skill[];
+  commands: Command[];
 
   setPrompt: (prompt: string) => void;
   setCwd: (cwd: string) => void;
@@ -41,20 +43,22 @@ interface AppState {
   setShowSettingsModal: (show: boolean) => void;
   setActiveSessionId: (id: string | null) => void;
   setApiConfigChecked: (checked: boolean) => void;
+  setSkills: (skills: Skill[]) => void;
+  setCommands: (commands: Command[]) => void;
   markHistoryRequested: (sessionId: string) => void;
   resolvePermissionRequest: (sessionId: string, toolUseId: string) => void;
   handleServerEvent: (event: ServerEvent) => void;
 }
 
 function createSession(id: string): SessionView {
-  return { id, title: "", status: "idle", messages: [], permissionRequests: [], hydrated: false };
+  return { id, title: '', status: 'idle', messages: [], permissionRequests: [], hydrated: false };
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
   sessions: {},
   activeSessionId: null,
-  prompt: "",
-  cwd: "",
+  prompt: '',
+  cwd: '',
   pendingStart: false,
   globalError: null,
   sessionsLoaded: false,
@@ -62,6 +66,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   showSettingsModal: false,
   historyRequested: new Set(),
   apiConfigChecked: false,
+  skills: [],
+  commands: [],
 
   setPrompt: (prompt) => set({ prompt }),
   setCwd: (cwd) => set({ cwd }),
@@ -71,6 +77,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   setShowSettingsModal: (showSettingsModal) => set({ showSettingsModal }),
   setActiveSessionId: (id) => set({ activeSessionId: id }),
   setApiConfigChecked: (apiConfigChecked) => set({ apiConfigChecked }),
+  setSkills: (skills) => set({ skills }),
+  setCommands: (commands) => set({ commands }),
 
   markHistoryRequested: (sessionId) => {
     set((state) => {
@@ -100,7 +108,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const state = get();
 
     switch (event.type) {
-      case "session.list": {
+      case 'session.list': {
         const nextSessions: Record<string, SessionView> = {};
         for (const session of event.payload.sessions) {
           const existing = state.sessions[session.id] ?? createSession(session.id);
@@ -144,7 +152,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         break;
       }
 
-      case "session.history": {
+      case 'session.history': {
         const { sessionId, messages, status } = event.payload;
         set((state) => {
           const existing = state.sessions[sessionId] ?? createSession(sessionId);
@@ -158,7 +166,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         break;
       }
 
-      case "session.status": {
+      case 'session.status': {
         const { sessionId, status, title, cwd } = event.payload;
         set((state) => {
           const existing = state.sessions[sessionId] ?? createSession(sessionId);
@@ -183,7 +191,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         break;
       }
 
-      case "session.deleted": {
+      case 'session.deleted': {
         const { sessionId } = event.payload;
         const state = get();
 
@@ -210,7 +218,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         break;
       }
 
-      case "stream.message": {
+      case 'stream.message': {
         const { sessionId, message } = event.payload;
         set((state) => {
           const existing = state.sessions[sessionId] ?? createSession(sessionId);
@@ -224,7 +232,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         break;
       }
 
-      case "stream.user_prompt": {
+      case 'stream.user_prompt': {
         const { sessionId, prompt } = event.payload;
         set((state) => {
           const existing = state.sessions[sessionId] ?? createSession(sessionId);
@@ -233,7 +241,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               ...state.sessions,
               [sessionId]: {
                 ...existing,
-                messages: [...existing.messages, { type: "user_prompt", prompt }]
+                messages: [...existing.messages, { type: 'user_prompt', prompt }]
               }
             }
           };
@@ -241,7 +249,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         break;
       }
 
-      case "permission.request": {
+      case 'permission.request': {
         const { sessionId, toolUseId, toolName, input } = event.payload;
         set((state) => {
           const existing = state.sessions[sessionId] ?? createSession(sessionId);
@@ -258,10 +266,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         break;
       }
 
-      case "runner.error": {
+      case 'runner.error': {
         set({ globalError: event.payload.message });
+        break;
+      }
+
+      case 'skill.list': {
+        set({ skills: event.payload.skills, commands: event.payload.commands });
         break;
       }
     }
   }
 }));
+

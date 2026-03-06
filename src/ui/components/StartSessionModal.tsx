@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
+import type { Skill, Command } from "../types";
 
 interface StartSessionModalProps {
+  skills: Skill[];
+  commands: Command[];
   cwd: string;
   prompt: string;
   pendingStart: boolean;
@@ -14,12 +17,42 @@ export function StartSessionModal({
   cwd,
   prompt,
   pendingStart,
+  skills,
+  commands,
   onCwdChange,
   onPromptChange,
   onStart,
   onClose
 }: StartSessionModalProps) {
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
+  const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
+  const [selectedCommand, setSelectedCommand] = useState<Command | null>(null);
+
+  const handleSkillSelect = (skill: Skill | null) => {
+    setSelectedSkill(skill);
+    setSelectedCommand(null);
+    if (skill) {
+      const skillPrompt = skill.argumentHint 
+        ? `/${skill.name} ${skill.argumentHint}`
+        : `/${skill.name}`;
+      onPromptChange(skillPrompt);
+    } else {
+      onPromptChange('');
+    }
+  };
+
+  const handleCommandSelect = (command: Command | null) => {
+    setSelectedCommand(command);
+    setSelectedSkill(null);
+    if (command) {
+      const commandPrompt = command.argumentHint 
+        ? `/${command.name} ${command.argumentHint}`
+        : `/${command.name}`;
+      onPromptChange(commandPrompt);
+    } else {
+      onPromptChange('');
+    }
+  };
 
   useEffect(() => {
     window.electron.getRecentCwds().then(setRecentCwds).catch(console.error);
@@ -80,6 +113,62 @@ export function StartSessionModal({
               </div>
             )}
           </label>
+          {skills.length > 0 && (
+            <label className="grid gap-1.5">
+              <span className="text-xs font-medium text-muted">Skills (Optional)</span>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={`truncate rounded-full border px-3 py-1.5 text-xs transition-colors whitespace-nowrap ${!selectedSkill ? "border-accent/60 bg-accent/10 text-ink-800" : "border-ink-900/10 bg-white text-muted hover:border-ink-900/20 hover:text-ink-700"}`}
+                  onClick={() => handleSkillSelect(null)}
+                >
+                  None
+                </button>
+                {skills.map((skill) => (
+                  <button
+                    key={skill.name}
+                    type="button"
+                    className={`truncate rounded-full border px-3 py-1.5 text-xs transition-colors whitespace-nowrap ${selectedSkill?.name === skill.name ? "border-accent/60 bg-accent/10 text-ink-800" : "border-ink-900/10 bg-white text-muted hover:border-ink-900/20 hover:text-ink-700"}`}
+                    onClick={() => handleSkillSelect(skill)}
+                    title={skill.description}
+                  >
+                    /{skill.name}
+                  </button>
+                ))}
+              </div>
+              {selectedSkill && (
+                <p className="text-xs text-muted-light mt-1">{selectedSkill.description}</p>
+              )}
+            </label>
+          )}
+          {commands.length > 0 && (
+            <label className="grid gap-1.5">
+              <span className="text-xs font-medium text-muted">Commands (Optional)</span>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={`truncate rounded-full border px-3 py-1.5 text-xs transition-colors whitespace-nowrap ${!selectedCommand ? "border-accent/60 bg-accent/10 text-ink-800" : "border-ink-900/10 bg-white text-muted hover:border-ink-900/20 hover:text-ink-700"}`}
+                  onClick={() => handleCommandSelect(null)}
+                >
+                  None
+                </button>
+                {commands.map((command) => (
+                  <button
+                    key={command.name}
+                    type="button"
+                    className={`truncate rounded-full border px-3 py-1.5 text-xs transition-colors whitespace-nowrap ${selectedCommand?.name === command.name ? "border-accent/60 bg-accent/10 text-ink-800" : "border-ink-900/10 bg-white text-muted hover:border-ink-900/20 hover:text-ink-700"}`}
+                    onClick={() => handleCommandSelect(command)}
+                    title={command.description}
+                  >
+                    /{command.name}
+                  </button>
+                ))}
+              </div>
+              {selectedCommand && (
+                <p className="text-xs text-muted-light mt-1">{selectedCommand.description}</p>
+              )}
+            </label>
+          )}
           <label className="grid gap-1.5">
             <span className="text-xs font-medium text-muted">Prompt</span>
             <textarea

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useRef, useState } from "react";
 import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import { useIPC } from "./hooks/useIPC";
 import { useMessageWindow } from "./hooks/useMessageWindow";
@@ -44,6 +44,8 @@ function App() {
   const setCwd = useAppStore((s) => s.setCwd);
   const pendingStart = useAppStore((s) => s.pendingStart);
   const apiConfigChecked = useAppStore((s) => s.apiConfigChecked);
+  const skills = useAppStore((s) => s.skills);
+  const commands = useAppStore((s) => s.commands);
   const setApiConfigChecked = useAppStore((s) => s.setApiConfigChecked);
 
   // Helper function to extract partial message content
@@ -110,7 +112,7 @@ function App() {
     totalMessages,
   } = useMessageWindow(messages, permissionRequests, activeSessionId);
 
-  // 启动时检查 API 配置
+  // 鍚姩鏃舵鏌?API 閰嶇疆
   useEffect(() => {
     if (!apiConfigChecked) {
       window.electron.checkApiConfig().then((result) => {
@@ -127,6 +129,10 @@ function App() {
 
   useEffect(() => {
     if (connected) sendEvent({ type: "session.list" });
+  }, [connected, sendEvent]);
+
+  useEffect(() => {
+    if (connected) sendEvent({ type: "skill.list" });
   }, [connected, sendEvent]);
 
   useEffect(() => {
@@ -355,6 +361,8 @@ function App() {
           cwd={cwd}
           prompt={prompt}
           pendingStart={pendingStart}
+          skills={skills}
+          commands={commands}
           onCwdChange={setCwd}
           onPromptChange={setPrompt}
           onStart={handleStartFromModal}
@@ -381,3 +389,5 @@ function App() {
 }
 
 export default App;
+
+

@@ -1,4 +1,4 @@
-import electron from "electron";
+﻿import electron from "electron";
 
 electron.contextBridge.exposeInMainWorld("electron", {
     subscribeStatistics: (callback) =>

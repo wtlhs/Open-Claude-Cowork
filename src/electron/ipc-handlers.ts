@@ -1,7 +1,8 @@
-import { BrowserWindow } from "electron";
+﻿import { BrowserWindow } from "electron";
 import type { ClientEvent, ServerEvent } from "./types.js";
 import { runClaude, type RunnerHandle } from "./libs/runner.js";
 import { SessionStore } from "./libs/session-store.js";
+import { getCommands } from "./libs/commands.js";
 import { app } from "electron";
 import { join } from "path";
 
@@ -75,6 +76,23 @@ export function handleClientEvent(event: ClientEvent) {
     emit({
       type: "session.list",
       payload: { sessions: store.listSessions() }
+    });
+    return;
+  }
+
+  if (event.type === "skill.list") {
+    // 异步获取 skills 并广播
+    getCommands().then(({ skills, commands }) => {
+      broadcast({
+        type: "skill.list",
+        payload: { skills, commands }
+      });
+    }).catch((error) => {
+      console.error("Failed to get skills:", error);
+      broadcast({
+        type: "skill.list",
+        payload: { skills: [], commands: [] }
+      });
     });
     return;
   }
@@ -271,3 +289,4 @@ export function cleanupAllSessions(): void {
 }
 
 export { sessions };
+
