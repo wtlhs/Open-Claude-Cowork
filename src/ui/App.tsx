@@ -250,7 +250,7 @@ function App() {
         onDeleteSession={handleDeleteSession}
       />
 
-      <main className="flex flex-1 flex-col ml-[280px] bg-surface-cream">
+      <main className="flex flex-1 flex-col ml-[280px] bg-surface-cream pb-[140px]">
         <div
           className="flex items-center justify-center h-12 border-b border-ink-900/10 bg-surface-cream select-none"
           style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
@@ -261,7 +261,8 @@ function App() {
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto px-8 pb-40 pt-6"
+          className="flex-1 overflow-y-auto px-8 pt-6"
+          style={{ scrollbarGutter: 'stable' }}
         >
           <div className="mx-auto max-w-3xl">
             <div ref={topSentinelRef} className="h-1" />

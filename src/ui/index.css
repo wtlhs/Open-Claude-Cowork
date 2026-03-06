@@ -85,8 +85,8 @@ code, pre, textarea.mono, input.mono {
 }
 
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -94,12 +94,43 @@ code, pre, textarea.mono, input.mono {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #D1D1CC;
-  border-radius: 3px;
+  background: rgba(180, 180, 175, 0.6);
+  border-radius: 4px;
+  min-height: 40px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  transition: background 0.2s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #9B9B96;
+  background: rgba(155, 155, 150, 0.8);
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: rgba(122, 122, 117, 1);
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Make scrollbar always visible on webkit browsers */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox scrollbar support */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(180, 180, 175, 0.6) transparent;
+}
+
+*:hover {
+  scrollbar-color: rgba(155, 155, 150, 0.8) transparent;
+}
+
+*:active {
+  scrollbar-color: rgba(122, 122, 117, 1) transparent;
 }
 
 /* Shimmer animation for partial message loading */
