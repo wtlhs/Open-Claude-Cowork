@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import type { Skill, Command } from "../types";
 
 interface StartSessionModalProps {
@@ -27,32 +27,40 @@ export function StartSessionModal({
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const [selectedCommand, setSelectedCommand] = useState<Command | null>(null);
+  const [argumentValue, setArgumentValue] = useState<string>("");
+  const [showPreview, setShowPreview] = useState(false);
+
+  // 构建完整的 prompt
+  const buildPrompt = (item: Skill | Command | null, arg: string) => {
+    if (!item) return "";
+    const argPart = arg.trim() ? ` ${arg.trim()}` : (item.argumentHint ? "" : "");
+    return `/${item.name}${argPart}`;
+  };
 
   const handleSkillSelect = (skill: Skill | null) => {
     setSelectedSkill(skill);
     setSelectedCommand(null);
-    if (skill) {
-      const skillPrompt = skill.argumentHint 
-        ? `/${skill.name} ${skill.argumentHint}`
-        : `/${skill.name}`;
-      onPromptChange(skillPrompt);
-    } else {
-      onPromptChange('');
-    }
+    setArgumentValue("");
+    setShowPreview(!!skill);
+    onPromptChange(buildPrompt(skill, ""));
   };
 
   const handleCommandSelect = (command: Command | null) => {
     setSelectedCommand(command);
     setSelectedSkill(null);
-    if (command) {
-      const commandPrompt = command.argumentHint 
-        ? `/${command.name} ${command.argumentHint}`
-        : `/${command.name}`;
-      onPromptChange(commandPrompt);
-    } else {
-      onPromptChange('');
-    }
+    setArgumentValue("");
+    setShowPreview(!!command);
+    onPromptChange(buildPrompt(command, ""));
   };
+
+  // 当参数变化时更新 prompt
+  useEffect(() => {
+    if (selectedSkill) {
+      onPromptChange(buildPrompt(selectedSkill, argumentValue));
+    } else if (selectedCommand) {
+      onPromptChange(buildPrompt(selectedCommand, argumentValue));
+    }
+  }, [argumentValue, selectedSkill, selectedCommand]);
 
   useEffect(() => {
     window.electron.getRecentCwds().then(setRecentCwds).catch(console.error);
@@ -63,9 +71,19 @@ export function StartSessionModal({
     if (result) onCwdChange(result);
   };
 
+  // 解析 argumentHint 提取占位符
+  const parseArgumentHint = (hint?: string) => {
+    if (!hint) return null;
+    // 匹配 <placeholder> 或 [placeholder] 格式
+    const match = hint.match(/[<\[](\w+)[>\]]/);
+    return match ? match[1] : hint;
+  };
+
+  const selectedItem = selectedSkill || selectedCommand;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/20 px-4 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-2xl border border-ink-900/5 bg-surface p-6 shadow-elevated">
+      <div className="w-full max-w-lg rounded-2xl border border-ink-900/5 bg-surface p-6 shadow-elevated max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between">
           <div className="text-base font-semibold text-ink-800">Start Session</div>
           <button className="rounded-full p-1.5 text-muted hover:bg-surface-tertiary hover:text-ink-700 transition-colors" onClick={onClose} aria-label="Close">
@@ -113,13 +131,18 @@ export function StartSessionModal({
               </div>
             )}
           </label>
+
+          {/* Skills Section */}
           {skills.length > 0 && (
-            <label className="grid gap-1.5">
-              <span className="text-xs font-medium text-muted">Skills (Optional)</span>
-              <div className="flex flex-wrap gap-2">
+            <div className="grid gap-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-muted">Skills</span>
+                <span className="text-[10px] text-muted-light">{skills.length} available</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1">
                 <button
                   type="button"
-                  className={`truncate rounded-full border px-3 py-1.5 text-xs transition-colors whitespace-nowrap ${!selectedSkill ? "border-accent/60 bg-accent/10 text-ink-800" : "border-ink-900/10 bg-white text-muted hover:border-ink-900/20 hover:text-ink-700"}`}
+                  className={`shrink-0 rounded-full border px-2.5 py-1 text-xs transition-colors ${!selectedSkill ? "border-accent/60 bg-accent/10 text-ink-800" : "border-ink-900/10 bg-white text-muted hover:border-ink-900/20 hover:text-ink-700"}`}
                   onClick={() => handleSkillSelect(null)}
                 >
                   None
@@ -128,7 +151,7 @@ export function StartSessionModal({
                   <button
                     key={skill.name}
                     type="button"
-                    className={`truncate rounded-full border px-3 py-1.5 text-xs transition-colors whitespace-nowrap ${selectedSkill?.name === skill.name ? "border-accent/60 bg-accent/10 text-ink-800" : "border-ink-900/10 bg-white text-muted hover:border-ink-900/20 hover:text-ink-700"}`}
+                    className={`shrink-0 rounded-full border px-2.5 py-1 text-xs transition-colors ${selectedSkill?.name === skill.name ? "border-accent/60 bg-accent/10 text-ink-800" : "border-ink-900/10 bg-white text-muted hover:border-ink-900/20 hover:text-ink-700"}`}
                     onClick={() => handleSkillSelect(skill)}
                     title={skill.description}
                   >
@@ -136,18 +159,20 @@ export function StartSessionModal({
                   </button>
                 ))}
               </div>
-              {selectedSkill && (
-                <p className="text-xs text-muted-light mt-1">{selectedSkill.description}</p>
-              )}
-            </label>
+            </div>
           )}
+
+          {/* Commands Section */}
           {commands.length > 0 && (
-            <label className="grid gap-1.5">
-              <span className="text-xs font-medium text-muted">Commands (Optional)</span>
-              <div className="flex flex-wrap gap-2">
+            <div className="grid gap-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-muted">Commands</span>
+                <span className="text-[10px] text-muted-light">{commands.length} available</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1">
                 <button
                   type="button"
-                  className={`truncate rounded-full border px-3 py-1.5 text-xs transition-colors whitespace-nowrap ${!selectedCommand ? "border-accent/60 bg-accent/10 text-ink-800" : "border-ink-900/10 bg-white text-muted hover:border-ink-900/20 hover:text-ink-700"}`}
+                  className={`shrink-0 rounded-full border px-2.5 py-1 text-xs transition-colors ${!selectedCommand ? "border-accent/60 bg-accent/10 text-ink-800" : "border-ink-900/10 bg-white text-muted hover:border-ink-900/20 hover:text-ink-700"}`}
                   onClick={() => handleCommandSelect(null)}
                 >
                   None
@@ -156,7 +181,7 @@ export function StartSessionModal({
                   <button
                     key={command.name}
                     type="button"
-                    className={`truncate rounded-full border px-3 py-1.5 text-xs transition-colors whitespace-nowrap ${selectedCommand?.name === command.name ? "border-accent/60 bg-accent/10 text-ink-800" : "border-ink-900/10 bg-white text-muted hover:border-ink-900/20 hover:text-ink-700"}`}
+                    className={`shrink-0 rounded-full border px-2.5 py-1 text-xs transition-colors ${selectedCommand?.name === command.name ? "border-accent/60 bg-accent/10 text-ink-800" : "border-ink-900/10 bg-white text-muted hover:border-ink-900/20 hover:text-ink-700"}`}
                     onClick={() => handleCommandSelect(command)}
                     title={command.description}
                   >
@@ -164,11 +189,67 @@ export function StartSessionModal({
                   </button>
                 ))}
               </div>
-              {selectedCommand && (
-                <p className="text-xs text-muted-light mt-1">{selectedCommand.description}</p>
-              )}
-            </label>
+            </div>
           )}
+
+          {/* Selected Item Details */}
+          {selectedItem && (
+            <div className="grid gap-2 rounded-xl border border-ink-900/10 bg-surface-secondary p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-ink-800">/{selectedItem.name}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent font-medium">
+                      {selectedSkill ? "Skill" : "Command"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted mt-1 line-clamp-2">{selectedItem.description}</p>
+                </div>
+              </div>
+
+              {/* Argument Input */}
+              {selectedItem.argumentHint && (
+                <div className="grid gap-1 mt-2">
+                  <label className="text-xs font-medium text-muted">
+                    Arguments: <code className="text-ink-700 bg-ink-900/5 px-1 rounded">{selectedItem.argumentHint}</code>
+                  </label>
+                  <input
+                    type="text"
+                    className="rounded-lg border border-ink-900/10 bg-white px-3 py-1.5 text-sm text-ink-800 placeholder:text-muted-light focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20 transition-colors"
+                    placeholder={parseArgumentHint(selectedItem.argumentHint) || "Enter arguments..."}
+                    value={argumentValue}
+                    onChange={(e) => setArgumentValue(e.target.value)}
+                  />
+                </div>
+              )}
+
+              {/* Preview Toggle */}
+              <button
+                type="button"
+                className="flex items-center gap-1.5 text-xs text-muted hover:text-ink-700 transition-colors mt-1"
+                onClick={() => setShowPreview(!showPreview)}
+              >
+                <svg 
+                  viewBox="0 0 24 24" 
+                  className={`h-3.5 w-3.5 transition-transform ${showPreview ? "rotate-180" : ""}`} 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="2"
+                >
+                  <path d="M19 9l-7 7-7-7" />
+                </svg>
+                {showPreview ? "Hide preview" : "Show prompt preview"}
+              </button>
+
+              {/* Prompt Preview */}
+              {showPreview && (
+                <div className="rounded-lg bg-ink-900/5 p-2.5 font-mono text-xs text-ink-700 break-all">
+                  {buildPrompt(selectedItem, argumentValue)}
+                </div>
+              )}
+            </div>
+          )}
+
           <label className="grid gap-1.5">
             <span className="text-xs font-medium text-muted">Prompt</span>
             <textarea
@@ -176,20 +257,38 @@ export function StartSessionModal({
               className="rounded-xl border border-ink-900/10 bg-surface-secondary p-3 text-sm text-ink-800 placeholder:text-muted-light focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20 transition-colors resize-none"
               placeholder="Describe the task you want agent to handle..."
               value={prompt}
-              onChange={(e) => onPromptChange(e.target.value)}
+              onChange={(e) => {
+                onPromptChange(e.target.value);
+                // 如果用户手动编辑了 prompt，清除选择
+                if (selectedItem && !e.target.value.startsWith(`/${selectedItem.name}`)) {
+                  setSelectedSkill(null);
+                  setSelectedCommand(null);
+                  setArgumentValue("");
+                }
+              }}
             />
           </label>
           <button
-            className="flex flex-col items-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white shadow-soft hover:bg-accent-hover transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex items-center justify-center gap-2 rounded-full bg-accent px-5 py-3 text-sm font-medium text-white shadow-soft hover:bg-accent-hover transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             onClick={onStart}
             disabled={pendingStart || !cwd.trim() || !prompt.trim()}
           >
             {pendingStart ? (
-              <svg aria-hidden="true" className="w-5 h-5 animate-spin" viewBox="0 0 100 101" fill="none">
-                <path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor" opacity="0.3" />
-                <path d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z" fill="white" />
-              </svg>
-            ) : "Start Session"}
+              <>
+                <svg aria-hidden="true" className="w-4 h-4 animate-spin" viewBox="0 0 100 101" fill="none">
+                  <path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor" opacity="0.3" />
+                  <path d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z" fill="white" />
+                </svg>
+                <span>Starting...</span>
+              </>
+            ) : (
+              <>
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M5 12h14M12 5l7 7-7 7" />
+                </svg>
+                <span>Start Session</span>
+              </>
+            )}
           </button>
         </div>
       </div>
