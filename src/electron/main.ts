@@ -1,9 +1,10 @@
-import { app, BrowserWindow, ipcMain, dialog, globalShortcut, Menu } from "electron"
+﻿import { app, BrowserWindow, ipcMain, dialog, globalShortcut, Menu } from "electron"
 import { execSync } from "child_process";
 import { ipcMainHandle, isDev, DEV_PORT } from "./util.js";
 import { getPreloadPath, getUIPath, getIconPath } from "./pathResolver.js";
 import { getStaticData, pollResources, stopPolling } from "./test.js";
 import { handleClientEvent, sessions, cleanupAllSessions, initializeSessionsStore } from "./ipc-handlers.js";
+import { getCommands } from "./libs/commands.js";
 import { generateSessionTitle } from "./libs/util.js";
 import { saveApiConfig } from "./libs/config-store.js";
 import { getCurrentApiConfig } from "./libs/claude-settings.js";
@@ -139,4 +140,9 @@ app.on("ready", async () => {
             };
         }
     });
+    // Handle skills/commands request
+    ipcMainHandle("get-skills", async () => {
+        return await getCommands();
+    });
+
 })
